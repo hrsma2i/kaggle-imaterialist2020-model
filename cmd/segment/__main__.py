@@ -11,7 +11,6 @@ import tensorflow_core._api.v1.compat.v1 as tf
 import typer
 from configs import factory as config_factory
 from dataloader import mode_keys
-from evaluation.submission import get_new_image_size
 from google.cloud import bigquery
 from google.cloud.bigquery import SchemaField
 from google.cloud.bigquery.enums import SqlTypeNames
@@ -42,7 +41,11 @@ class Feature(TypedDict):
     labels: Label
 
 
-def load_and_preprocess_image(path: str, image_size: int) -> Feature:
+def load_and_preprocess_image(
+    path: str,
+    resize_size: tuple[int, int],
+    max_level: int,
+) -> Feature:
     """
     c.f.,
         tf_tpu_models/official/detection/main.py @ FLAGS.mode == "predict"
@@ -62,7 +65,7 @@ def load_and_preprocess_image(path: str, image_size: int) -> Feature:
     Feature
     """
     # pad the last batch with dummy images to fix batch_size
-    dummy_image = tf.zeros([image_size, image_size, 3], dtype=tf.uint8)
+    dummy_image = tf.zeros([resize_size[0], resize_size[1], 3], dtype=tf.uint8)
     dummy_image.set_shape([None, None, 3])
 
     image = tf.cond(
@@ -73,11 +76,17 @@ def load_and_preprocess_image(path: str, image_size: int) -> Feature:
     # tf.print(path, tf.shape(image))
 
     image = input_utils.normalize_image(image)
-    resize_shape = [image_size, image_size]
     image, image_info = input_utils.resize_and_crop_image(
-        image, resize_shape, resize_shape, aug_scale_min=1.0, aug_scale_max=1.0
+        image,
+        desired_size=resize_size,
+        padded_size=input_utils.compute_padded_size(
+            desired_size=resize_size,
+            stride=2 ** max_level,
+        ),
+        aug_scale_min=1.0,
+        aug_scale_max=1.0,
     )
-    image.set_shape([resize_shape[0], resize_shape[1], 3])
+    image.set_shape([resize_size[0], resize_size[1], 3])
 
     labels: Label = {"image_info": image_info}
 
@@ -87,10 +96,17 @@ def load_and_preprocess_image(path: str, image_size: int) -> Feature:
 
 
 class InputFn:
-    def __init__(self, filenames: list[str], batch_size: int, image_size: int):
+    def __init__(
+        self,
+        filenames: list[str],
+        batch_size: int,
+        resize_size: tuple[int, int],
+        max_level: int,
+    ):
         self.filenames = filenames
         self.batch_size = batch_size
-        self.image_size = image_size
+        self.resize_size = resize_size
+        self.max_level = max_level
 
     def __call__(self):
         # pad the last batch with dummy images to fix batch_size
@@ -99,7 +115,11 @@ class InputFn:
         ]
         dataset = tf.data.Dataset.from_tensor_slices(self.filenames)
         dataset = dataset.map(
-            lambda p: load_and_preprocess_image(p, image_size=self.image_size),
+            lambda p: load_and_preprocess_image(
+                p,
+                resize_size=self.resize_size,
+                max_level=self.max_level,
+            ),
             num_parallel_calls=tf.data.experimental.AUTOTUNE,
         )
 
@@ -200,7 +220,6 @@ def encode_mask_fn(x) -> COCORLE:
 
 def convert_predictions_to_coco_annotations(
     prediction: Prediction,
-    output_image_size: int = None,
     score_threshold=0.05,
 ) -> list[COCOAnnotation]:
     """This is made, modifying a function of the same name in
@@ -210,8 +229,6 @@ def convert_predictions_to_coco_annotations(
     ----------
     prediction : Prediction
         [description]
-    output_image_size : int, optional
-        [description], by default None
     score_threshold : float, optional
         [description], by default 0.05
 
@@ -227,15 +244,14 @@ def convert_predictions_to_coco_annotations(
     mask_boxes = prediction["pred_detection_boxes"]
 
     image_id = prediction["pred_source_id"]
-    orig_image_size = prediction["pred_image_info"][0]
-    # image_info: (2, 2)=(orginal|scale, height|width)  # noqa: E501
+    orig_size = prediction["pred_image_info"][0]
+    resize_size = prediction["pred_image_info"][1]
+    # image_info: (2, 2)=(orginal|scale, height|width)
 
-    if output_image_size:
-        eval_image_size = get_new_image_size(orig_image_size, output_image_size)
+    if orig_size[0] > orig_size[1]:
+        o2r = orig_size[0] / resize_size[0]
     else:
-        eval_image_size = orig_image_size
-
-    eval_scale = orig_image_size[0] / eval_image_size[0]
+        o2r = orig_size[1] / resize_size[1]
 
     bbox_indices = np.argwhere(
         prediction["pred_detection_scores"] >= score_threshold
@@ -244,9 +260,9 @@ def convert_predictions_to_coco_annotations(
     predicted_masks = prediction["pred_detection_masks"][bbox_indices]
     image_masks = mask_utils.paste_instance_masks(
         predicted_masks,
-        mask_boxes[bbox_indices].astype(np.float32) / eval_scale,
-        int(eval_image_size[0]),
-        int(eval_image_size[1]),
+        mask_boxes[bbox_indices].astype(np.float32) * o2r,
+        int(orig_size[0]),
+        int(orig_size[1]),
     )
     binary_masks = (image_masks > 0.0).astype(np.uint8)
     encoded_masks = [encode_mask_fn(binary_mask) for binary_mask in list(binary_masks)]
@@ -268,7 +284,7 @@ def convert_predictions_to_coco_annotations(
             # Avoid `astype(np.float32)` because
             # it can't be serialized as JSON.
             "bbox": tuple(
-                float(x) for x in prediction["pred_detection_boxes"][k] / eval_scale
+                float(x) for x in prediction["pred_detection_boxes"][k] * o2r
             ),
             "mask_area_fraction": float(mask_area_fractions[m]),
             "score": float(prediction["pred_detection_scores"][k]),
@@ -346,7 +362,11 @@ def main(
         "Choose from BQ table (bq://project.dataset.table) or local path (/path/to/segmentation.jsonlines).",
     ),
     batch_size: int = 2,
-    image_size: int = 640,
+    resize: int = typer.Option(
+        640,
+        help="A size to which input images are resized. "
+        "The smaller this is, the faster the inference but the more coarse the segmentation.",
+    ),
     min_score_threshold: float = 0.05,
 ):
 
@@ -378,7 +398,8 @@ def main(
         input_fn=InputFn(
             filenames=image_files,
             batch_size=batch_size,
-            image_size=image_size,
+            resize_size=[resize, resize],
+            max_level=params.architecture.max_level,
         ),
         checkpoint_path=checkpoint_path,
         yield_single_examples=True,
@@ -396,7 +417,6 @@ def main(
 
             coco_annotations = convert_predictions_to_coco_annotations(
                 prediction=prediction,
-                # output_image_size=1024,
                 score_threshold=min_score_threshold,
             )
 
