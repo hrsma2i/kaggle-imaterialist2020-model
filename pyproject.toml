@@ -6,8 +6,11 @@ authors = ["Your Name <you@example.com>"]
 packages = [
     { include = "configs", from = "tf_tpu_models/official/detection" },
     { include = "dataloader", from = "tf_tpu_models/official/detection" },
+    { include = "evaluation", from = "tf_tpu_models/official/detection" },
     { include = "executor", from = "tf_tpu_models/official/detection" },
     { include = "modeling", from = "tf_tpu_models/official/detection" },
+    { include = "ops", from = "tf_tpu_models/official/detection" },
+    { include = "serving", from = "tf_tpu_models/official/detection" },
     { include = "utils", from = "tf_tpu_models/official/detection" },
     { include = "hyperparameters", from = "tf_tpu_models" },
     { include = "kaggle_imaterialist2020_model" },
