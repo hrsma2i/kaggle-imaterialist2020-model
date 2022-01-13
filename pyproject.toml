@@ -6,8 +6,11 @@ authors = ["Your Name <you@example.com>"]
 packages = [
     { include = "configs", from = "tf_tpu_models/official/detection" },
     { include = "dataloader", from = "tf_tpu_models/official/detection" },
+    { include = "evaluation", from = "tf_tpu_models/official/detection" },
     { include = "executor", from = "tf_tpu_models/official/detection" },
     { include = "modeling", from = "tf_tpu_models/official/detection" },
+    { include = "ops", from = "tf_tpu_models/official/detection" },
+    { include = "serving", from = "tf_tpu_models/official/detection" },
     { include = "utils", from = "tf_tpu_models/official/detection" },
     { include = "hyperparameters", from = "tf_tpu_models" },
     { include = "kaggle_imaterialist2020_model" },
@@ -39,6 +42,7 @@ typing-extensions = "^3.10.0"
 google-cloud-bigquery = "^2.26.0"
 tensorflow = "^2.7.0"
 tensorflow-addons = "^0.15.0"
+python-json-logger = "^2.0.2"
 
 [tool.poetry.dev-dependencies]
 flake8 = "^3.9.0"

@@ -119,6 +119,7 @@ def main(
             config_file=config_file,
             checkpoint_path=checkpoint_path,
             image_dir=str(image_dir),
+            cache_dir=None,
             out=f.name,
         )
 

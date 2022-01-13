@@ -42,10 +42,13 @@ RUN apt-get -y install git
 FROM py-install AS app-install
 
 # Build python libraries
-RUN pip3 install poetry==1.1.6
-COPY cmd/ ./cmd/
+RUN pip3 install poetry==1.1.8
+COPY kaggle_imaterialist2020_model/ ./kaggle_imaterialist2020_model/
 COPY tf_tpu_models/ ./tf_tpu_models/
 COPY tools/ ./tools/
 COPY pyproject.toml poetry.lock ./
-RUN poetry config virtualenvs.create false && \
-  poetry install --no-dev
+RUN poetry config virtualenvs.create false \
+  # To install libclang (12.0.0)
+  # which Poetry can't install while Pip can.
+  # https://github.com/python-poetry/poetry/issues/3591#issuecomment-765840042
+  && pip install .
