@@ -86,7 +86,7 @@ def convert_predictions_to_coco_annotations(
                 # Avoid `astype(np.float32)` because
                 # it can't be serialized as JSON.
                 bbox=tuple(
-                    float(x) for x in prediction["pred_detection_boxes"][k] / eval_scale
+                    float(x) for x in prediction["pred_detection_boxes"][k] * o2r
                 ),
                 mask_area_fraction=float(mask_area_fractions[m]),
                 score=float(prediction["pred_detection_scores"][k]),
