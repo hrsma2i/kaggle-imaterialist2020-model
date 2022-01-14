@@ -121,6 +121,7 @@ def main(
             image_dir=str(image_dir),
             cache_dir=None,
             out=f.name,
+            resize=640,
         )
 
         print("load segmentation")
