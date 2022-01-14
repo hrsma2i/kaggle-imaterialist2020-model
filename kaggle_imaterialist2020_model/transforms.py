@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import numpy as np
 from evaluation.submission import get_new_image_size
 from pycocotools import mask as mask_api
@@ -75,18 +76,23 @@ def convert_predictions_to_coco_annotations(
 
     anns: list[COCOAnnotation] = []
     for m, k in enumerate(bbox_indices):
-        ann = COCOAnnotation(
-            image_id=image_id,
-            filename=filename,
-            category_id=int(prediction["pred_detection_classes"][k]),
-            # Avoid `astype(np.float32)` because
-            # it can't be serialized as JSON.
-            bbox=tuple(float(x) for x in prediction["pred_detection_boxes"][k] * o2r),
-            mask_area_fraction=float(mask_area_fractions[m]),
-            score=float(prediction["pred_detection_scores"][k]),
-            segmentation=encoded_masks[m],
-            mask_mean_score=mask_mean_scores[m],
-        )
-        anns.append(ann)
+        mask_mean_score = mask_mean_scores[m]
+        # mask_mean_score is float("nan") when mask_area is 0.
+        if not math.isnan(mask_mean_score):
+            ann = COCOAnnotation(
+                image_id=image_id,
+                filename=filename,
+                category_id=int(prediction["pred_detection_classes"][k]),
+                # Avoid `astype(np.float32)` because
+                # it can't be serialized as JSON.
+                bbox=tuple(
+                    float(x) for x in prediction["pred_detection_boxes"][k] / eval_scale
+                ),
+                mask_area_fraction=float(mask_area_fractions[m]),
+                score=float(prediction["pred_detection_scores"][k]),
+                segmentation=encoded_masks[m],
+                mask_mean_score=mask_mean_score,
+            )
+            anns.append(ann)
 
     return anns
