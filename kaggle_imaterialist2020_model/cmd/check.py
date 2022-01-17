@@ -4,7 +4,6 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -85,16 +84,6 @@ def join_cateogry(df):
     return df
 
 
-def crop_and_resize(mask):
-    # TODO: Remove this function after fixing the mask resizing bug
-    # https://github.com/hrsma2i/kaggle-imaterialist2020-model/pull/11
-    h, w, _ = IMAGE.shape
-    h_ = 640
-    w_ = int(640 / h * w)
-    resized_mask = cv2.resize(mask[:h_, :w_], (w, h))
-    return resized_mask
-
-
 def main(
     config_file: str = typer.Option(
         ...,
@@ -128,9 +117,6 @@ def main(
         df = pd.read_json(f.name, lines=True)
         df = join_cateogry(df)
         actual_masks = df["segmentation"].apply(rle_to_mask)
-        # TODO: Remove mask cropping & resizing after fixing the mask resizing bug
-        # https://github.com/hrsma2i/kaggle-imaterialist2020-model/pull/11
-        actual_masks = actual_masks.apply(crop_and_resize)
 
         if out_qual:
             print(f"save actual mask images at: {out_qual}")
@@ -144,13 +130,10 @@ def main(
                 axis=1,
             )
 
-        print(f"check each expected mask exists in the actual masks")
+        print("check each expected mask exists in the actual masks")
         for mask_file in mask_dir.glob("*.npy"):
 
             expected = np.load(mask_file)
-            # TODO: Remove mask cropping & resizing after fixing the mask resizing bug
-            # https://github.com/hrsma2i/kaggle-imaterialist2020-model/pull/11
-            expected = crop_and_resize(expected)
 
             if out_qual:
                 save_mask_image(expected, out_qual / f"expected_{mask_file.stem}.png")
