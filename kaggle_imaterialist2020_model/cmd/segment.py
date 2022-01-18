@@ -45,7 +45,11 @@ def main(
         "or local path (/path/to/segmentation.jsonlines).",
     ),
     batch_size: int = 2,
-    image_size: int = 640,
+    resize: int = typer.Option(
+        640,
+        help="A size to which input images are resized. "
+        "The smaller this is, the faster the inference but the more coarse the segmentation.",
+    ),
     min_score_threshold: float = 0.05,
 ):
     reader = Reader(image_dir, gcs_project)
@@ -58,7 +62,7 @@ def main(
         config_file=config_file,
         checkpoint_path=checkpoint_path,
         batch_size=batch_size,
-        resize_shape=(image_size, image_size),
+        resize_shape=(resize, resize),
         device=None,
         cache_dir=cache_dir,
     )

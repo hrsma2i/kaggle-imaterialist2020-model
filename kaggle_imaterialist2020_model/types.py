@@ -8,7 +8,14 @@ from typing_extensions import TypedDict
 
 class Prediction(TypedDict):
     pred_num_detctions: int
-    pred_image_info: np.array  # (2, 2)=(orginal|scale, height|width)  # noqa: E501
+    pred_image_info: np.array
+    # pred_image_info: (4, 2)
+    # [
+    #     [original_height, original_width],
+    #     [desired_height,  desired_width ],
+    #     [y_scale,         x_scale       ],
+    #     [y_offset,        x_offset      ]
+    # ]
     pred_detection_boxes: np.array  # (num_detections, 4)
     pred_detection_classes: np.array  # (num_detections, )
     pred_detection_scores: np.array  # (num_detections, )

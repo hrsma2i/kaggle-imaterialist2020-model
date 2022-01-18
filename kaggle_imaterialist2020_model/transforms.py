@@ -20,7 +20,6 @@ def convert_predictions_to_coco_annotations(
     prediction: Prediction,
     image_id: int,
     filename: str,
-    output_image_size: int = None,
     score_threshold=0.05,
 ) -> list[COCOAnnotation]:
     """This is made, modifying a function of the same name in
@@ -30,8 +29,8 @@ def convert_predictions_to_coco_annotations(
     ----------
     prediction : Prediction
         [description]
-    output_image_size : int, optional
-        [description], by default None
+    image_id: int
+    filename: str
     score_threshold : float, optional
         [description], by default 0.05
 
@@ -46,15 +45,13 @@ def convert_predictions_to_coco_annotations(
 
     mask_boxes = prediction["pred_detection_boxes"]
 
-    orig_image_size = prediction["pred_image_info"][0]
-    # image_info: (2, 2)=(orginal|scale, height|width)  # noqa: E501
+    orig_shape = prediction["pred_image_info"][0]
+    resize_shape = prediction["pred_image_info"][1]
 
-    if output_image_size:
-        eval_image_size = get_new_image_size(orig_image_size, output_image_size)
+    if orig_shape[0] > orig_shape[1]:
+        o2r = orig_shape[0] / resize_shape[0]
     else:
-        eval_image_size = orig_image_size
-
-    eval_scale = orig_image_size[0] / eval_image_size[0]
+        o2r = orig_shape[1] / resize_shape[1]
 
     bbox_indices = np.argwhere(
         prediction["pred_detection_scores"] >= score_threshold
@@ -63,9 +60,9 @@ def convert_predictions_to_coco_annotations(
     predicted_masks = prediction["pred_detection_masks"][bbox_indices]
     image_masks = mask_utils.paste_instance_masks(
         predicted_masks,
-        mask_boxes[bbox_indices].astype(np.float32) / eval_scale,
-        int(eval_image_size[0]),
-        int(eval_image_size[1]),
+        mask_boxes[bbox_indices].astype(np.float32) * o2r,
+        int(orig_shape[0]),
+        int(orig_shape[1]),
     )
     binary_masks = (image_masks > 0.0).astype(np.uint8)
     encoded_masks = [_encode_mask_fn(binary_mask) for binary_mask in list(binary_masks)]
@@ -89,7 +86,7 @@ def convert_predictions_to_coco_annotations(
                 # Avoid `astype(np.float32)` because
                 # it can't be serialized as JSON.
                 bbox=tuple(
-                    float(x) for x in prediction["pred_detection_boxes"][k] / eval_scale
+                    float(x) for x in prediction["pred_detection_boxes"][k] * o2r
                 ),
                 mask_area_fraction=float(mask_area_fractions[m]),
                 score=float(prediction["pred_detection_scores"][k]),

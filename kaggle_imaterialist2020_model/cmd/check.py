@@ -4,7 +4,6 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -15,7 +14,7 @@ from segmentation.transforms import coco_rle_to_mask
 
 resource_dir = Path(__file__).parents[2] / "tests/resources"
 image_dir = resource_dir / "images"
-mask_dir = resource_dir / "masks"
+expected_mask_dir = resource_dir / "masks"
 
 
 def rle_to_mask(rle: dict[str, Any]) -> np.ndarray:
@@ -46,7 +45,6 @@ def join_cateogry(df):
     df_c = (
         pd.Series(
             [
-                "background",
                 "shirt|blouse",
                 "top|t-shirt|sweatshirt",
                 "sweater",
@@ -85,16 +83,6 @@ def join_cateogry(df):
     return df
 
 
-def crop_and_resize(mask):
-    # TODO: Remove this function after fixing the mask resizing bug
-    # https://github.com/hrsma2i/kaggle-imaterialist2020-model/pull/11
-    h, w, _ = IMAGE.shape
-    h_ = 640
-    w_ = int(640 / h * w)
-    resized_mask = cv2.resize(mask[:h_, :w_], (w, h))
-    return resized_mask
-
-
 def main(
     config_file: str = typer.Option(
         ...,
@@ -106,59 +94,64 @@ def main(
         help="A Tensorflow checkpoint file to load a trained model. "
         "Choose from GCS URI (gs://bucket/models/foo/model.ckpt-1234) or local path (path/to/model.ckpt-1234).",
     ),
-    out_qual: Path = typer.Option(
-        None,
-        help="The path to save images for qualitative evaluation.",
+    out_dir: Path = typer.Option(
+        ...,
+        help="The directory path to save segmentation.jsonlines"
+        " and images for qualitative evaluation.",
     ),
 ) -> None:
     """Check that editing the training code (tf_tpu_models/official/detection/main.py)
     doesn't make the accuracy worse.
     """
-    with tempfile.NamedTemporaryFile(suffix=".jsonl") as f:
-        segment(
-            config_file=config_file,
-            checkpoint_path=checkpoint_path,
-            image_dir=str(image_dir),
-            cache_dir=None,
-            out=f.name,
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_json = out_dir / "segmentation.jsonlines"
+    segment(
+        config_file=config_file,
+        checkpoint_path=checkpoint_path,
+        image_dir=str(image_dir),
+        cache_dir=str(out_dir / "saved_model"),
+        out=str(out_json),
+        resize=640,
+    )
+
+    print("load segmentation")
+    df_act = pd.read_json(out_json, lines=True)
+    df_act = join_cateogry(df_act)
+    actual_masks = df_act["segmentation"].apply(rle_to_mask)
+
+    mask_image_dir = out_dir / "mask_images"
+    mask_image_dir.mkdir(parents=True, exist_ok=True)
+    actual_mask_dir = out_dir / "actual_masks"
+    actual_mask_dir.mkdir(parents=True, exist_ok=True)
+    print(f"save actual mask images at: {mask_image_dir}")
+    df_act["mask"] = actual_masks
+
+    def _save_mask_and_image(row):
+        suffix = f"{row['index']}_{row['category']}"
+        save_mask_image(
+            row["mask"],
+            mask_image_dir / f"actual_{suffix}.png",
+        )
+        # to update test cases in mask_dir
+        np.save(
+            actual_mask_dir / f"{suffix}.npy",
+            row["mask"],
         )
 
-        print("load segmentation")
-        df = pd.read_json(f.name, lines=True)
-        df = join_cateogry(df)
-        actual_masks = df["segmentation"].apply(rle_to_mask)
-        # TODO: Remove mask cropping & resizing after fixing the mask resizing bug
-        # https://github.com/hrsma2i/kaggle-imaterialist2020-model/pull/11
-        actual_masks = actual_masks.apply(crop_and_resize)
+    df_act.reset_index().apply(_save_mask_and_image, axis=1)
 
-        if out_qual:
-            print(f"save actual mask images at: {out_qual}")
-            out_qual.mkdir(parents=True, exist_ok=True)
-            df["actual_mask"] = actual_masks
-            df.reset_index().apply(
-                lambda row: save_mask_image(
-                    row["actual_mask"],
-                    out_qual / f"actual_{row['index']}_{row['category']}.png",
-                ),
-                axis=1,
-            )
+    print("check each expected mask exists in the actual masks")
+    for mask_file in expected_mask_dir.glob("*.npy"):
 
-        print(f"check each expected mask exists in the actual masks")
-        for mask_file in mask_dir.glob("*.npy"):
+        expected = np.load(mask_file)
 
-            expected = np.load(mask_file)
-            # TODO: Remove mask cropping & resizing after fixing the mask resizing bug
-            # https://github.com/hrsma2i/kaggle-imaterialist2020-model/pull/11
-            expected = crop_and_resize(expected)
+        save_mask_image(expected, mask_image_dir / f"expected_{mask_file.stem}.png")
 
-            if out_qual:
-                save_mask_image(expected, out_qual / f"expected_{mask_file.stem}.png")
+        assert actual_masks.apply(
+            lambda actual: iou(actual, expected) > 0.90
+        ).any(), f"{mask_file.name} mask doesn't exist in the prediction."
 
-            assert actual_masks.apply(
-                lambda actual: iou(actual, expected) > 0.90
-            ).any(), f"{mask_file.name} mask doesn't exist in the prediction."
-
-            print(f"{mask_file}: OK")
+        print(f"{mask_file}: OK")
 
 
 if __name__ == "__main__":

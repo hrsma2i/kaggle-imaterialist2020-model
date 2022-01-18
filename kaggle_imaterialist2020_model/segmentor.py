@@ -41,6 +41,7 @@ class Segmentor:
             )
         params.validate()
         params.lock()
+        self.max_level = params.architecture.max_level
 
         self._model = model_factory.model_generator(params)
         estimator = tf.estimator.Estimator(
@@ -103,9 +104,12 @@ class Segmentor:
         image = tf.convert_to_tensor(image, tf.uint8)
         image = input_utils.normalize_image(image)
         image, image_info = input_utils.resize_and_crop_image(
-            image,
-            self.resize_shape,
-            self.resize_shape,
+            image=image,
+            desired_size=self.resize_shape,
+            padded_size=input_utils.compute_padded_size(
+                desired_size=self.resize_shape,
+                stride=2 ** self.max_level,
+            ),
             aug_scale_min=1.0,
             aug_scale_max=1.0,
         )

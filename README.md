@@ -247,7 +247,7 @@ If you edit the training code ( `tf_tpu_models/official/detection/main.py` ), yo
 poetry run python kaggle_imaterialist2020_model/cmd/check.py \
 --checkpoint-path "gs://bucket/model/model.ckpt-20000" \
 --config-file "gs://bucket/model/config.yaml" \
---out-qual tmp/segment/qual
+--out-dir tmp/segment/
 ```
 
 All expected masks ( `tests/resources/masks/*.npy` ) must be included in the new predictions, if the accuracy doesn't get worse.
@@ -268,27 +268,24 @@ On the other hand, you'll get a message like the following, if the accuracy gets
 AssertionError: belt.npy mask doesn't exist in the prediction.
 ```
 
-You can evaluate the predictions in more detail by seeing the actual and expcted images in the directory `tmp/segment/qual/` given by `--out-qual`.
+You can evaluate the predictions in more detail by seeing the actual and expcted images in the directory `tmp/segment/mask_images` given by `--out-dir`.
 
 ```
-├── actual_0_leg_warmer.png
-├── actual_10_cardigan.png
-├── actual_11_shorts.png
-├── actual_12_umbrella.png
-├── actual_13_umbrella.png
-├── actual_14_umbrella.png
-├── actual_1_leg_warmer.png
-├── actual_2_skirt.png
-├── actual_3_coat.png
-├── actual_4_watch.png
-├── actual_5_watch.png
-├── actual_6_watch.png
-├── actual_7_vest.png
-├── actual_8_shirt|blouse.png
-├── actual_9_shirt|blouse.png
-├── expected_belt.png
-├── expected_coat.png
-├── expected_skirt.png
-├── expected_stockings_right.png
-└── expected_top.png
+├── mask_images
+|   ├── actual_0_leg_warmer.png
+|   ├── actual_1_leg_warmer.png
+|   ├── ...
+|   ├── actual_8_shirt|blouse.png
+|   ├── actual_9_shirt|blouse.png
+|   ├── expected_belt.png
+|   ├── expected_coat.png
+|   ├── expected_skirt.png
+|   ├── expected_stockings_right.png
+|   └── expected_top.png
+└── actual_masks
+    ├── 0_leg_warmer.npy
+    ├── ...
+    └── 9_shirt|blouse.npy
 ```
+
+If you update the segmentation model, **also update the test cases in `tests/resources/masks`** by choosing appropriate masks from `/tmp/segment/actual_masks`.
